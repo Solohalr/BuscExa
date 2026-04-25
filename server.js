@@ -1,84 +1,81 @@
 const express = require('express');
-const XLSX = require('xlsx');
-const path = require('path');
 const fs = require('fs');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Servir archivos estáticos (HTML, CSS)
+// Servir archivos estáticos (HTML, CSS, JS) desde la raíz del proyecto
 app.use(express.static(__dirname));
 
-// Variables para guardar los datos en memoria del servidor
 let allData = [];
 let headers = [];
 
-console.log("📂 Iniciando servidor...");
-console.log("🔄 Cargando archivos Excel... (Esto puede tardar unos segundos)");
+console.log("🔄 Cargando datos JSON...");
 
 try {
-    // 1. Leer Archivo 1
-    const wb1 = XLSX.readFile('archivos/CENTRO_Universo_Consolidados trafos.xlsx');
-    const sheet1 = wb1.Sheets["Exportar"] || wb1.Sheets[wb1.SheetNames[1]]; // Busca hoja Exportar o la 2da
-    const json1 = XLSX.utils.sheet_to_json(sheet1, { header: 1, defval: "" });
+    // Rutas a los archivos JSON (ajustadas a la estructura de carpetas)
+    const pathCentro = path.join(__dirname, 'archivos', 'centro.json');
+    const pathNorte = path.join(__dirname, 'archivos', 'norte.json');
 
-    // 2. Leer Archivo 2
-    const wb2 = XLSX.readFile('archivos/NORTE_Universo_Consolidados trafos.xlsx');
-    const sheet2 = wb2.Sheets["Exportar"] || wb2.Sheets[wb2.SheetNames[1]];
-    const json2 = XLSX.utils.sheet_to_json(sheet2, { header: 1, defval: "" });
+    // Leer y parsear JSON al iniciar el servidor
+    const centro = JSON.parse(fs.readFileSync(pathCentro, 'utf8'));
+    const norte = JSON.parse(fs.readFileSync(pathNorte, 'utf8'));
 
-    // 3. Unir datos
-    // El primer elemento es el encabezado, el resto son datos
-    headers = json1[0]; 
-    const data1 = json1.slice(1);
-    const data2 = json2.slice(1);
-    
-    allData = [...data1, ...data2];
+    // Unir ambos conjuntos de datos
+    allData = [...centro, ...norte];
 
-    console.log(`✅ Servidor listo! ${allData.length} registros cargados en memoria.`);
+    // Extraer encabezados del primer registro
+    if (allData.length > 0) {
+        headers = Object.keys(allData[0]);
+    }
 
+    console.log(`✅ Listo: ${allData.length} registros cargados | ${headers.length} columnas`);
 } catch (error) {
-    console.error("💥 Error cargando archivos:", error);
-    console.log("Verifica que los archivos estén en la carpeta 'archivos/' y tengan el nombre exacto.");
+    console.error("💥 Error cargando JSON:", error.message);
+    console.log("⚠️ Verifica que 'centro.json' y 'norte.json' existan en la carpeta 'archivos/'");
 }
 
-// ================= API DE BÚSQUEDA =================
+// ================= ENDPOINT DE BÚSQUEDA =================
 app.get('/api/search', (req, res) => {
-    const { q, column } = req.query; // q = búsqueda, column = filtro seleccionado
+    const { q, column } = req.query;
 
-    if (!q || q.length < 1) {
+    // Si no hay término de búsqueda, devolver estructura vacía
+    if (!q || q.trim() === '') {
         return res.json({ headers, results: [], count: 0 });
     }
 
-    const term = q.toLowerCase().trim();
-    
-    // Buscar índice de la columna si existe
+    const term = q.trim().toLowerCase();
     let colIndex = -1;
+
+    // Si se especifica columna, buscar su índice exacto
     if (column) {
-        colIndex = headers.findIndex(h => h && h.trim().toLowerCase() === column.trim().toLowerCase());
+        colIndex = headers.findIndex(h => h.toLowerCase() === column.toLowerCase());
     }
 
-    // Filtrar datos
+    // Filtrar datos según el modo de búsqueda
     const results = allData.filter(row => {
         if (colIndex >= 0 && column) {
-            // Búsqueda EXACTA en columna específica
-            const val = row[colIndex];
+            // 🔍 BÚSQUEDA EXACTA (prioriza el filtro seleccionado)
+            const val = row[headers[colIndex]];
             return val !== null && val !== undefined && String(val).trim().toLowerCase() === term;
         } else {
-            // Búsqueda PARCIAL en todas las columnas
-            return row.some(cell => cell !== null && cell !== undefined && String(cell).toLowerCase().includes(term));
+            // 🔎 BÚSQUEDA PARCIAL (en todas las columnas)
+            return Object.values(row).some(v => 
+                v !== null && v !== undefined && String(v).toLowerCase().includes(term)
+            );
         }
-    }).slice(0, 200); // Limitamos a 200 resultados para no saturar la red
+    }).slice(0, 200); // Límite de 200 resultados para evitar saturación
 
     res.json({
         headers,
         results,
         count: results.length,
-        filteredBy: column || "Todas"
+        total: allData.length
     });
 });
 
 // Iniciar servidor
 app.listen(PORT, () => {
-    console.log(`🚀 Celsia API corriendo en http://localhost:${PORT}`);
+    console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
 });

@@ -7,7 +7,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Servir archivos estáticos (HTML, CSS)
-app.use(express.static('public'));
+app.use(express.static(__dirname));
 
 // Variables para guardar los datos en memoria del servidor
 let allData = [];

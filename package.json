@@ -1,17 +1,20 @@
 {
-  "name": "celsia-consulta",
+  "name": "buscexa",
   "version": "1.0.0",
-  "description": "Consulta de datos Celsia",
+  "description": "Celsia Consulta de Datos con JSON",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "dev": "nodemon server.js"
   },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
   "dependencies": {
     "express": "^4.18.2",
-    "xlsx": "^0.18.5",
     "cors": "^2.8.5"
   },
   "engines": {
-    "node": ">=16.0.0"
+    "node": ">=14.0.0"
   }
 }

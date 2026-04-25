@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Celsia - Consulta de Datos</title>
+    <link rel="stylesheet" href="Css/styles.css">
+</head>
+<body>
+
+    <header class="header-celsia">
+        <div class="header-content">
+            <div class="logo-area"><span class="logo-icon">⚡</span><span class="logo-name">CELSIA</span></div>
+            <h1>Consulta de Registros</h1>
+        </div>
+    </header>
+
+    <section class="search-section">
+        <div class="search-container">
+            <select id="searchColumn" class="search-filter" disabled><option value="">🔍 Todas las columnas</option></select>
+            <div class="search-icon">🔍</div>
+            <input type="text" id="searchInput" class="search-input" placeholder="Cargando..." disabled>
+            <span id="resultCount" class="result-count">0 registros</span>
+        </div>
+        <div id="searchHint" style="max-width:1200px; margin:8px auto 0; font-size:0.8rem; color:#666; text-align:center;">
+            💡 Búsqueda instantánea en servidor.
+        </div>
+    </section>
+
+    <div id="loading" class="loading-overlay">
+        <div class="loading-spinner"></div>
+        <p class="loading-text">Conectando con el servidor...</p>
+    </div>
+
+    <main class="main-content">
+        <div class="table-container">
+            <div class="table-header-bar">
+                <h2>📋 Resultados</h2>
+                <div><span id="matchCount" style="margin-right:15px; font-size:0.9rem; color:#E35205;"></span>
+                <button class="btn-reset" onclick="resetSearch()">Limpiar</button></div>
+            </div>
+            <div class="table-scroll">
+                <table id="dataTable" class="data-table">
+                    <thead id="tableHead"></thead>
+                    <tbody id="tableBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <!-- MODAL -->
+    <div id="detailModal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header"><h3>Detalle del Registro</h3><button class="btn-close" onclick="closeModal()">✕</button></div>
+            <div id="detailBody" class="modal-body"></div>
+            <div class="modal-footer"><button class="btn-map" id="btnMap" style="display:none;">📍 Ver en Google Maps</button></div>
+        </div>
+    </div>
+
+    <script>
+        // ================= ESTADO =================
+        let currentData = { headers: [], results: [] };
+        let latColIndex = -1;
+        let lngColIndex = -1;
+
+        // ================= INICIO =================
+        window.addEventListener('DOMContentLoaded', async () => {
+            try {
+                // Pedir al servidor que cargue datos y nos devuelva los encabezados
+                const res = await fetch('/api/search?q=init'); 
+                // (Usamos un query dummy para que el server responda con los headers)
+                
+                // Para inicializar, llamamos al endpoint con algo que falle o vacío para obtener estructura
+                // Mejor estrategia: Pedir headers específicos o una búsqueda vacía si la lógica lo permite.
+                // Ajustemos la lógica: Al cargar, el servidor devuelve { headers: [...] }
+                
+                // Llamada inicial para obtener estructura
+                const initRes = await fetch('/api/search?q='); 
+                const initData = await initRes.json();
+                
+                currentData.headers = initData.headers;
+                setupUI(initData.headers);
+                
+            } catch (error) {
+                document.getElementById('loading').innerHTML = `<h3 style="color:red">Error conectando al servidor</h3>`;
+                console.error(error);
+            }
+        });
+
+        function setupUI(headers) {
+            // Llenar Dropdown
+            const searchColumn = document.getElementById('searchColumn');
+            const priorityCols = ['ID Cliente', 'ID', 'Cliente', 'CLIENTE_ID', 'Numero Medidor', 'NUMERO_MEDIDOR'];
+            
+            headers.forEach(h => {
+                const opt = document.createElement('option');
+                opt.value = h;
+                opt.textContent = priorityCols.includes(h) ? `📌 ${h}` : h;
+                searchColumn.appendChild(opt);
+            });
+
+            // Detectar coordenadas
+            headers.forEach((h, i) => {
+                const hl = h.toLowerCase();
+                if (hl.includes('lat') && !hl.includes('long')) latColIndex = i;
+                if (hl.includes('lon') || hl.includes('long')) lngColIndex = i;
+            });
+
+            searchColumn.disabled = false;
+            const input = document.getElementById('searchInput');
+            input.disabled = false;
+            input.placeholder = "Buscar...";
+            input.focus();
+            
+            document.getElementById('loading').style.display = 'none';
+        }
+
+        // ================= BÚSQUEDA =================
+        let debounceTimer;
+        document.getElementById('searchInput').addEventListener('input', (e) => {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(() => performSearch(e.target.value, document.getElementById('searchColumn').value), 400);
+        });
+        
+        document.getElementById('searchColumn').addEventListener('change', (e) => {
+            performSearch(document.getElementById('searchInput').value, e.target.value);
+        });
+
+        async function performSearch(term, column) {
+            if (!term && term !== '') return;
+            if (term.length < 1 && !column) { // Permitir búsqueda vacía si se quiere ver todo, pero mejor exigir texto
+                 // Opcional: resetear si está vacío
+                 if(term === '') { resetSearch(); return; }
+            }
+
+            document.getElementById('loading').style.display = 'flex';
+            
+            try {
+                const url = `/api/search?q=${encodeURIComponent(term)}&column=${encodeURIComponent(column)}`;
+                const res = await fetch(url);
+                const data = await res.json();
+                
+                currentData.results = data.results;
+                renderTable(data.results, data.headers);
+                
+                document.getElementById('matchCount').textContent = `${data.count} encontrados`;
+                document.getElementById('resultCount').textContent = `${data.count} registros`;
+                
+            } catch (err) {
+                console.error(err);
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        function renderTable(results, headers) {
+            const tbody = document.getElementById('tableBody');
+            const thead = document.getElementById('tableHead');
+            tbody.innerHTML = '';
+            
+            if (thead.innerHTML === "" && headers) {
+                thead.innerHTML = `<tr><th>#</th>${headers.map(h => `<th>${h}</th>`).join('')}<th>Ver</th></tr>`;
+            }
+
+            results.forEach((row, i) => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `<td>${i + 1}</td>${headers.map(h => {
+                    const idx = headers.indexOf(h);
+                    return `<td>${row[idx] !== undefined ? row[idx] : ''}</td>`;
+                }).join('')}<td><button class="btn-action">👁️</button></td>`;
+                
+                tr.onclick = () => openModal(row, headers);
+                tbody.appendChild(tr);
+            });
+        }
+
+        // ================= MODAL =================
+        function openModal(row, headers) {
+            const modal = document.getElementById('detailModal');
+            const body = document.getElementById('detailBody');
+            const btnMap = document.getElementById('btnMap');
+            
+            body.innerHTML = headers.map(h => {
+                const idx = headers.indexOf(h);
+                return `<div class="detail-row"><span class="label">${h}:</span><span class="value">${row[idx] !== undefined ? row[idx] : '-'}</span></div>`;
+            }).join('');
+
+            // Mapa
+            if (latColIndex >= 0 && lngColIndex >= 0 && row[latColIndex] && row[lngColIndex]) {
+                btnMap.style.display = 'block';
+                btnMap.onclick = () => window.open(`https://www.google.com/maps/search/?api=1&query=${row[latColIndex]},${row[lngColIndex]}`, '_blank');
+            } else {
+                btnMap.style.display = 'none';
+            }
+            
+            modal.classList.remove('hidden');
+        }
+
+        function closeModal() { document.getElementById('detailModal').classList.add('hidden'); }
+        function resetSearch() {
+            document.getElementById('searchInput').value = '';
+            document.getElementById('tableBody').innerHTML = '';
+            document.getElementById('resultCount').textContent = '0 registros';
+        }
+    </script>
+</body>
+</html>
